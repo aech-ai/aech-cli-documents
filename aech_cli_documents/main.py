@@ -107,5 +107,76 @@ def convert(
     import json
     print(json.dumps({"images": images_created}))
 
+def convert_office_to_docx(input_path: Path, output_dir: Path) -> Optional[Path]:
+    """Converts legacy Office document to DOCX using LibreOffice."""
+    cmd = [
+        "libreoffice",
+        "--headless",
+        "--convert-to",
+        "docx",
+        "--outdir",
+        str(output_dir),
+        str(input_path)
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        # LibreOffice saves with same basename but .docx extension
+        docx_path = output_dir / (input_path.stem + ".docx")
+        if docx_path.exists():
+            return docx_path
+    except subprocess.CalledProcessError as e:
+        print(f"Error converting office doc: {e}")
+    return None
+
+@app.command()
+def convert_to_markdown(
+    input_path: str,
+    output_dir: str = typer.Option(..., "--output-dir", "-o", help="Directory to save output markdown")
+):
+    """
+    Converts a document to Markdown using MarkItDown.
+    """
+    from markitdown import MarkItDown
+    
+    input_file = Path(input_path)
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    if not input_file.exists():
+        typer.echo(f"Error: File {input_path} not found.")
+        raise typer.Exit(code=1)
+
+    temp_docx = None
+    try:
+        # Handle legacy Office formats by converting to DOCX first
+        suffix = input_file.suffix.lower()
+        if suffix in ['.doc', '.ppt', '.xls', '.odt', '.odp', '.ods']:
+             print(f"Converting legacy Office document to DOCX: {input_file}")
+             temp_docx = convert_office_to_docx(input_file, out_path)
+             if not temp_docx:
+                 typer.echo("Failed to convert legacy Office document to DOCX.")
+                 raise typer.Exit(code=1)
+             input_file = temp_docx
+
+        md = MarkItDown()
+        result = md.convert(str(input_file))
+        
+        # Save to output file
+        output_filename = Path(input_path).stem + ".md" # Use original stem
+        output_file = out_path / output_filename
+        output_file.write_text(result.text_content)
+        
+        import json
+        print(json.dumps({"markdown_file": str(output_file)}))
+        
+    except Exception as e:
+        typer.echo(f"Error converting to markdown: {e}")
+        raise typer.Exit(code=1)
+    finally:
+        # Cleanup temp DOCX
+        if temp_docx and temp_docx.exists():
+            # Optional: remove temp file
+            pass
+
 if __name__ == "__main__":
     app()

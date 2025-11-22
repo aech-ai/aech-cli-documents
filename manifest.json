@@ -1,0 +1,25 @@
+{
+    "name": "documents",
+    "description": "documents capability",
+    "actions": [
+        {
+            "name": "convert-to-images",
+            "description": "Converts a document to images.",
+            "parameters": [
+                "path",
+                "output_dir"
+            ],
+            "required_scopes": []
+        },
+        {
+            "name": "convert-to-markdown",
+            "description": "Converts a document to Markdown.",
+            "parameters": [
+                "path",
+                "output_dir"
+            ],
+            "required_scopes": []
+        }
+    ],
+    "example": "python3 /capabilities/public/aech-cli-documents/main.py convert <path> --output-dir <output_dir>"
+}

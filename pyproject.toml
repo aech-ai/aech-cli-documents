@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aech-cli-documents"
+version = "0.1.0"
+description = "Document conversion CLI for Agent Aech"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "typer",
+    "pdf2image",
+    "Pillow",
+    "markitdown",
+]
+
+[project.scripts]
+aech-cli-documents = "aech_cli_documents.main:app"
