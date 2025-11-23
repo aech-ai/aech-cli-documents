@@ -1,13 +1,77 @@
-import typer
+import json
 import subprocess
-import shutil
-import os
+import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
+
+import typer
 from pdf2image import convert_from_path
 from PIL import Image
 
 app = typer.Typer()
+
+AECH_MANIFEST = {
+    "name": "documents",
+    "type": "cli",
+    "description": (
+        "Normalize documents for downstream processing. The CLI accepts"
+        " PDFs, most Office formats, and already-digitized images. The"
+        " `convert` command rasterizes each page into numbered PNG files"
+        " (auto-converting Office files to PDF via LibreOffice first). The"
+        " `convert-to-markdown` command runs MarkItDown to export clean"
+        " Markdown, auto-upgrading legacy Office formats to DOCX as needed."
+        " Inputs are local file paths and an output directory, making it"
+        " safe for sandboxed execution. Example: `aech-cli-documents"
+        " convert briefs/proposal.docx --output-dir"
+        " work/proposal_images`."
+    ),
+    "command": "aech-cli-documents",
+    "actions": [
+        {
+            "name": "convert",
+            "description": (
+                "Render a document to page-by-page PNG images. Office files"
+                " are converted to PDF first, PDFs are split via"
+                " `pdf2image`, and standalone images are normalized to"
+                " PNG. Outputs land in `output_dir` as `page_001.png`,"
+                " `page_002.png`, etc., and the command prints a JSON list"
+                " of the file paths. Example: `convert deck.pptx --output-dir"
+                " build/deck_images`."
+            ),
+            "parameters": [
+                {"name": "input_path", "type": "argument", "required": True},
+                {"name": "output_dir", "type": "option", "required": True},
+            ],
+        },
+        {
+            "name": "convert-to-markdown",
+            "description": (
+                "Convert supported documents to Markdown text via"
+                " MarkItDown. Legacy Office formats are first converted to"
+                " DOCX using LibreOffice so the Markdown mirrors the latest"
+                " layout. The resulting `<stem>.md` file is saved in"
+                " `output_dir` and the command returns its path as JSON."
+                " Example: `convert-to-markdown reports/notes.pdf --output-dir"
+                " build/md`."
+            ),
+            "parameters": [
+                {"name": "input_path", "type": "argument", "required": True},
+                {"name": "output_dir", "type": "option", "required": True},
+            ],
+        },
+    ],
+    "available_in_sandbox": True,
+}
+
+
+def _should_emit_manifest(argv: list[str]) -> bool:
+    """Return True when CLI should output the manifest instead of help text."""
+
+    return len(argv) == 2 and argv[1] in ("-h", "--help")
+
+
+def _print_manifest() -> None:
+    print(json.dumps(AECH_MANIFEST, indent=2))
 
 def convert_office_to_pdf(input_path: Path, output_dir: Path) -> Optional[Path]:
     """Converts Office document to PDF using LibreOffice."""
@@ -104,7 +168,6 @@ def convert(
             pass
 
     # Output JSON list of images
-    import json
     print(json.dumps({"images": images_created}))
 
 def convert_office_to_docx(input_path: Path, output_dir: Path) -> Optional[Path]:
@@ -166,7 +229,6 @@ def convert_to_markdown(
         output_file = out_path / output_filename
         output_file.write_text(result.text_content)
         
-        import json
         print(json.dumps({"markdown_file": str(output_file)}))
         
     except Exception as e:
@@ -178,5 +240,15 @@ def convert_to_markdown(
             # Optional: remove temp file
             pass
 
-if __name__ == "__main__":
+def run() -> None:
+    """CLI entry point that handles manifest-aware help output."""
+
+    if _should_emit_manifest(sys.argv):
+        _print_manifest()
+        return
+
     app()
+
+
+if __name__ == "__main__":
+    run()

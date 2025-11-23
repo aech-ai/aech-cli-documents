@@ -16,4 +16,4 @@ dependencies = [
 ]
 
 [project.scripts]
-aech-cli-documents = "aech_cli_documents.main:app"
+aech-cli-documents = "aech_cli_documents.main:run"

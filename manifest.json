@@ -1,25 +1,25 @@
 {
     "name": "documents",
-    "description": "documents capability",
+    "type": "cli",
+    "description": "Normalize documents for downstream processing. The CLI accepts PDFs, most Office formats, and already-digitized images. The `convert` command rasterizes each page into numbered PNG files (auto-converting Office files to PDF via LibreOffice first). The `convert-to-markdown` command runs MarkItDown to export clean Markdown, auto-upgrading legacy Office formats to DOCX as needed. Inputs are local file paths and an output directory, making it safe for sandboxed execution. Example: `aech-cli-documents convert briefs/proposal.docx --output-dir work/proposal_images`.",
+    "command": "aech-cli-documents",
     "actions": [
         {
-            "name": "convert-to-images",
-            "description": "Converts a document to images.",
+            "name": "convert",
+            "description": "Render a document to page-by-page PNG images. Office files are converted to PDF first, PDFs are split via `pdf2image`, and standalone images are normalized to PNG. Outputs land in `output_dir` as `page_001.png`, `page_002.png`, etc., and the command prints a JSON list of the file paths. Example: `convert deck.pptx --output-dir build/deck_images`.",
             "parameters": [
-                "path",
-                "output_dir"
-            ],
-            "required_scopes": []
+                {"name": "input_path", "type": "argument", "required": true},
+                {"name": "output_dir", "type": "option", "required": true}
+            ]
         },
         {
             "name": "convert-to-markdown",
-            "description": "Converts a document to Markdown.",
+            "description": "Convert supported documents to Markdown text via MarkItDown. Legacy Office formats are first converted to DOCX using LibreOffice so the Markdown mirrors the latest layout. The resulting `<stem>.md` file is saved in `output_dir` and the command returns its path as JSON. Example: `convert-to-markdown reports/notes.pdf --output-dir build/md`.",
             "parameters": [
-                "path",
-                "output_dir"
-            ],
-            "required_scopes": []
+                {"name": "input_path", "type": "argument", "required": true},
+                {"name": "output_dir", "type": "option", "required": true}
+            ]
         }
     ],
-    "example": "python3 /capabilities/public/aech-cli-documents/main.py convert <path> --output-dir <output_dir>"
+    "available_in_sandbox": true
 }
