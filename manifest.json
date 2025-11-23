@@ -69,11 +69,17 @@
             "pdf_engine": "Optional Pandoc PDF engine, e.g., xelatex."
         },
         "outputs": {
-            "email_body": {
-                "description": "make sure the reply summarizes the work done with a quick summary of the translation qa report."
+            "page_images": {
+                "path": "output_dir/page_###.png",
+                "description": "Numbered PNG pages emitted by convert; paths returned via stdout JSON list."
             },
-            "attachments": {
-                "description": "Return the tranlsated document(s) in the same format as the original. The QA report should be in PDF format."
+            "markdown_file": {
+                "path": "output_dir/<stem>.md",
+                "description": "Markdown exported from convert-to-markdown; path returned via stdout JSON object."
+            },
+            "converted_files": {
+                "path": "output_dir/<stem>.<format>",
+                "description": "Per-format deliverables from convert-markdown (docx/pdf/pptx/etc.) mirrored in stdout JSON."
             }
         },
         "automation_expectations": [
