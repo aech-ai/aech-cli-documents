@@ -54,3 +54,32 @@ Aech installers call `--help` on every CLI. This entry point intercepts a bare
 `aech-cli-documents --help` and prints the JSON manifest (same schema as
 `manifest.json`). Sub-command help (`convert --help`, etc.) still renders Typer's
 rich output.
+
+## Manifest Documentation Block
+
+The manifest also exposes a `documentation` object for richer, automation-ready
+metadata:
+
+- **readme**: Agent Aech document normalization CLI. Use `convert` to rasterize documents into per-page PNGs for OCR/classification, `convert-to-markdown` to extract clean Markdown for indexing, and `convert-markdown` to publish Markdown as DOCX/PDF (or other Pandoc formats). Provide local paths, set `--output-dir` inside the sandbox, and capture stdout JSON to know where files landed. Ensure LibreOffice, MarkItDown, and Pandoc are available when invoking their respective flows. QA: verify page counts vs. source, confirm Markdown preserves headings/lists, and skim rendered Office/PDF outputs for template fidelity before sharing.
+- **usage**: `aech-cli-documents <convert|convert-to-markdown|convert-markdown> <input_path> --output-dir <dir> [--format <fmt>] [--reference-doc <path>] [--pdf-engine <engine>]`
+- **inputs**:
+  - `input_path`: Source file path: PDF/Office/image for convert/convert-to-markdown; Markdown for convert-markdown.
+  - `output_dir`: Writable directory for all generated assets; must exist or be creatable inside the sandbox.
+  - `format`: Optional, repeatable Pandoc output format for convert-markdown (docx/pdf/pptx/etc.).
+  - `reference_doc`: Optional Pandoc reference template used for Office-style outputs.
+  - `pdf_engine`: Optional Pandoc PDF engine, e.g., xelatex.
+- **outputs**:
+  - `page_images`: `output_dir/page_###.png` — numbered PNG pages emitted by convert; paths returned via stdout JSON list.
+  - `markdown_file`: `output_dir/<stem>.md` — Markdown exported from convert-to-markdown; path returned via stdout JSON object.
+  - `converted_files`: `output_dir/<stem>.<format>` — per-format deliverables from convert-markdown (docx/pdf/pptx/etc.) mirrored in stdout JSON.
+- **automation_expectations**:
+  - Call the appropriate command with explicit `--output-dir` and capture stdout JSON for downstream steps.
+  - Bundle every file written to `output_dir` (page images, Markdown, Pandoc outputs) as artifacts or message attachments.
+  - Attach a short QA note following `qa_report_format` when handing off results.
+  - Flag missing dependencies (LibreOffice, MarkItDown, Pandoc) or conversion failures as blockers.
+  - Keep original stems and numbering; do not rename outputs when packaging.
+- **qa_report_format**:
+  - Overall conversion quality and completeness (pages rendered, text preserved).
+  - Notable discrepancies vs. source (missing pages, layout drift, encoding issues).
+  - Dependency or tooling issues encountered (and whether retries were attempted).
+  - Recommendations or next steps (e.g., rerun with different format/reference doc).
