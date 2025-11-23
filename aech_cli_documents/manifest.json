@@ -1,0 +1,100 @@
+{
+    "name": "documents",
+    "type": "cli",
+    "description": "Normalize documents for downstream processing. The CLI accepts PDFs, most Office formats, and already-digitized images. The `convert` command rasterizes each page into numbered PNG files (auto-converting Office files to PDF via LibreOffice first). The `convert-to-markdown` command runs MarkItDown to export clean Markdown, auto-upgrading legacy Office formats to DOCX as needed. Inputs are local file paths and an output directory, making it safe for sandboxed execution. Example: `aech-cli-documents convert briefs/proposal.docx --output-dir work/proposal_images`.",
+    "command": "aech-cli-documents",
+    "actions": [
+        {
+            "name": "convert",
+            "description": "Render a document to page-by-page PNG images. Office files are converted to PDF first, PDFs are split via `pdf2image`, and standalone images are normalized to PNG. Outputs land in `output_dir` as `page_001.png`, `page_002.png`, etc., and the command prints a JSON list of the file paths. Example: `convert deck.pptx --output-dir build/deck_images`.",
+            "parameters": [
+                {
+                    "name": "input_path",
+                    "type": "argument",
+                    "required": true
+                },
+                {
+                    "name": "output_dir",
+                    "type": "option",
+                    "required": true
+                }
+            ]
+        },
+        {
+            "name": "convert-to-markdown",
+            "description": "Convert supported documents to Markdown text via MarkItDown. Legacy Office formats are first converted to DOCX using LibreOffice so the Markdown mirrors the latest layout. The resulting `<stem>.md` file is saved in `output_dir` and the command returns its path as JSON. Example: `convert-to-markdown reports/notes.pdf --output-dir build/md`.",
+            "parameters": [
+                {
+                    "name": "input_path",
+                    "type": "argument",
+                    "required": true
+                },
+                {
+                    "name": "output_dir",
+                    "type": "option",
+                    "required": true
+                }
+            ]
+        },
+        {
+            "name": "convert-markdown",
+            "description": "Use Pandoc to render Markdown into polished Office/PDF outputs. Formats default to DOCX and PDF for consistent styling, but you can request multiple targets via repeated `--format` options. Example: `convert-markdown README.md --output-dir build/pandoc --format docx --format pptx`.",
+            "parameters": [
+                {
+                    "name": "input_path",
+                    "type": "argument",
+                    "required": true
+                },
+                {
+                    "name": "output_dir",
+                    "type": "option",
+                    "required": true
+                },
+                {
+                    "name": "format",
+                    "type": "option",
+                    "required": false
+                }
+            ]
+        }
+    ],
+    "documentation": {
+        "readme": "Agent Aech document normalization CLI. Use `convert` to rasterize documents into per-page PNGs for OCR/classification, `convert-to-markdown` to extract clean Markdown for indexing, and `convert-markdown` to publish Markdown as DOCX/PDF (or other Pandoc formats). Provide local paths, set `--output-dir` inside the sandbox, and capture stdout JSON to know where files landed. Ensure LibreOffice, MarkItDown, and Pandoc are available when invoking their respective flows. QA: verify page counts vs. source, confirm Markdown preserves headings/lists, and skim rendered Office/PDF outputs for template fidelity before sharing.",
+        "usage": "aech-cli-documents <convert|convert-to-markdown|convert-markdown> <input_path> --output-dir <dir> [--format <fmt>] [--reference-doc <path>] [--pdf-engine <engine>]",
+        "inputs": {
+            "input_path": "Source file path: PDF/Office/image for convert/convert-to-markdown; Markdown for convert-markdown.",
+            "output_dir": "Writable directory for all generated assets; must exist or be creatable inside the sandbox.",
+            "format": "Optional, repeatable Pandoc output format for convert-markdown (docx/pdf/pptx/etc.).",
+            "reference_doc": "Optional Pandoc reference template used for Office-style outputs.",
+            "pdf_engine": "Optional Pandoc PDF engine, e.g., xelatex."
+        },
+        "outputs": {
+            "page_images": {
+                "path": "output_dir/page_###.png",
+                "description": "Numbered PNG pages emitted by convert; paths returned via stdout JSON list."
+            },
+            "markdown_file": {
+                "path": "output_dir/<stem>.md",
+                "description": "Markdown exported from convert-to-markdown; path returned via stdout JSON object."
+            },
+            "converted_files": {
+                "path": "output_dir/<stem>.<format>",
+                "description": "Per-format deliverables from convert-markdown (docx/pdf/pptx/etc.) mirrored in stdout JSON."
+            }
+        },
+        "automation_expectations": [
+            "Call the appropriate command with explicit --output-dir and capture stdout JSON for downstream steps.",
+            "Bundle every file written to output_dir (page images, Markdown, Pandoc outputs) as artifacts or message attachments.",
+            "Attach a short QA note following qa_report_format when handing off results.",
+            "Flag missing dependencies (LibreOffice, MarkItDown, Pandoc) or conversion failures as blockers.",
+            "Keep original stems and numbering; do not rename outputs when packaging."
+        ],
+        "qa_report_format": [
+            "Overall conversion quality and completeness (pages rendered, text preserved).",
+            "Notable discrepancies vs. source (missing pages, layout drift, encoding issues).",
+            "Dependency or tooling issues encountered (and whether retries were attempted).",
+            "Recommendations or next steps (e.g., rerun with different format/reference doc)."
+        ]
+    },
+    "available_in_sandbox": true
+}
