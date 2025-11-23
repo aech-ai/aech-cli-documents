@@ -19,6 +19,15 @@
                 {"name": "input_path", "type": "argument", "required": true},
                 {"name": "output_dir", "type": "option", "required": true}
             ]
+        },
+        {
+            "name": "convert-markdown",
+            "description": "Use Pandoc to render Markdown into polished Office/PDF outputs. Formats default to DOCX and PDF for consistent styling, but you can request multiple targets via repeated `--format` options. Example: `convert-markdown README.md --output-dir build/pandoc --format docx --format pptx`.",
+            "parameters": [
+                {"name": "input_path", "type": "argument", "required": true},
+                {"name": "output_dir", "type": "option", "required": true},
+                {"name": "format", "type": "option", "required": false}
+            ]
         }
     ],
     "available_in_sandbox": true
