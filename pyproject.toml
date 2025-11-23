@@ -17,3 +17,6 @@ dependencies = [
 
 [project.scripts]
 aech-cli-documents = "aech_cli_documents.main:run"
+
+[tool.setuptools.data-files]
+"aech_cli_documents" = ["manifest.json"]
