@@ -221,6 +221,7 @@ def _run_pandoc(
         "--output",
         str(output_file),
         "--standalone",
+        "--quiet",
     ]
     if reference_doc and target_format in {"docx", "pptx", "odt"}:
         cmd.extend(["--reference-doc", str(reference_doc)])
