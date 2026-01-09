@@ -61,12 +61,6 @@
                     "type": "option",
                     "required": false,
                     "description": "Template file for styling Office outputs (docx/pptx)."
-                },
-                {
-                    "name": "pdf_engine",
-                    "type": "option",
-                    "required": false,
-                    "description": "PDF rendering engine (e.g., xelatex). Default engine works for most cases."
                 }
             ]
         }

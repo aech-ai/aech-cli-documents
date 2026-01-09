@@ -1,4 +1,5 @@
 pdf2image
 Pillow
 typer
-markitdown
+markitdown[all]
+pypandoc-binary

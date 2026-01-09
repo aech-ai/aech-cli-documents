@@ -208,7 +208,6 @@ def _run_pandoc(
     output_file: Path,
     target_format: str,
     reference_doc: Optional[Path] = None,
-    pdf_engine: Optional[str] = None,
 ) -> None:
     """Invoke Pandoc with common flags to enforce consistent styling."""
 
@@ -225,8 +224,6 @@ def _run_pandoc(
     ]
     if reference_doc and target_format in {"docx", "pptx", "odt"}:
         cmd.extend(["--reference-doc", str(reference_doc)])
-    if target_format == "pdf" and pdf_engine:
-        cmd.extend(["--pdf-engine", pdf_engine])
     subprocess.run(cmd, check=True, capture_output=True)
 
 
@@ -238,21 +235,16 @@ def convert_markdown(
         None,
         "--format",
         "-f",
-        help="Pandoc output format(s). Repeat flag to request multiple (default: docx,pdf).",
+        help="Output format(s). Repeat flag to request multiple (default: docx,pdf).",
     ),
     reference_doc: Optional[str] = typer.Option(
         None,
         "--reference-doc",
-        help="Optional Pandoc reference document for Office outputs.",
-    ),
-    pdf_engine: Optional[str] = typer.Option(
-        None,
-        "--pdf-engine",
-        help="Optional Pandoc PDF engine (e.g. xelatex).",
+        help="Optional reference document for Office outputs.",
     ),
 ):
     """
-    Use Pandoc to convert Markdown into standardized Office/PDF deliverables.
+    Convert Markdown into Office/PDF outputs.
     """
 
     input_file = Path(input_path)
@@ -283,7 +275,6 @@ def convert_markdown(
                 output_file,
                 fmt,
                 reference_doc=reference_path,
-                pdf_engine=pdf_engine,
             )
             generated_files.append({"format": fmt, "path": str(output_file)})
     except subprocess.CalledProcessError as exc:
