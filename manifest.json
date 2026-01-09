@@ -1,66 +1,72 @@
 {
     "name": "documents",
     "type": "cli",
-    "description": "Convert documents between formats. Accepts PDFs, Office files, and images. The `convert` command renders pages to PNG images. The `convert-to-markdown` command extracts text as Markdown. The `convert-markdown` command renders Markdown to Office/PDF outputs.",
     "command": "aech-cli-documents",
+    "description": "Convert documents between formats. Accepts PDFs, Office files, and images. Produces PNG page images, Markdown text, or Office/PDF outputs.",
     "actions": [
         {
             "name": "convert",
-            "description": "Render a document to page-by-page PNG images. Office files are converted to PDF first, then each page becomes `page_001.png`, `page_002.png`, etc. Returns JSON with the list of image paths.",
+            "description": "Render document pages to PNG images. Input: PDF, DOCX, PPTX, or image file. Output: page_001.png, page_002.png, etc. Returns JSON with list of image paths. Use when user needs to view or analyze document pages.",
             "parameters": [
                 {
                     "name": "input_path",
                     "type": "argument",
-                    "required": true
+                    "required": true,
+                    "description": "Path to the document file to convert. Accepts PDF, DOCX, PPTX, XLS, or image files."
                 },
                 {
                     "name": "output-dir",
                     "type": "option",
-                    "required": true
+                    "required": true,
+                    "description": "Directory where PNG images will be written. Will be created if it doesn't exist."
                 }
             ]
         },
         {
             "name": "convert-to-markdown",
-            "description": "Extract document content as Markdown text. Legacy Office formats (.doc, .ppt, .xls) are upgraded first for better extraction. Returns JSON with the output Markdown file path.",
+            "description": "Extract document text as Markdown. Input: PDF or Office file. Output: <stem>.md file with extracted text. Returns JSON with output path. Use when user needs document content as editable text.",
             "parameters": [
                 {
                     "name": "input_path",
                     "type": "argument",
-                    "required": true
+                    "required": true,
+                    "description": "Path to the document file. Accepts PDF, DOCX, PPTX, XLS, DOC, PPT, XLS."
                 },
                 {
                     "name": "output-dir",
                     "type": "option",
-                    "required": true
+                    "required": true,
+                    "description": "Directory where the Markdown file will be written."
                 }
             ]
         },
         {
             "name": "convert-markdown",
-            "description": "Render Markdown to Office/PDF outputs. Defaults to DOCX and PDF. Use `--format` (repeatable) to specify formats like docx, pdf, pptx. Returns JSON with the generated file paths.",
+            "description": "Render Markdown to Office or PDF formats. Input: Markdown file. Output: DOCX and PDF by default, or specified formats. Returns JSON with output paths. Use when user needs a polished document from Markdown source.",
             "parameters": [
                 {
                     "name": "input_path",
                     "type": "argument",
-                    "required": true
+                    "required": true,
+                    "description": "Path to the Markdown (.md) file to convert."
                 },
                 {
                     "name": "output-dir",
                     "type": "option",
-                    "required": true
+                    "required": true,
+                    "description": "Directory where output files will be written."
                 },
                 {
                     "name": "format",
                     "type": "option",
                     "required": false,
-                    "description": "Output format (docx, pdf, pptx, etc.). Can be repeated for multiple outputs."
+                    "description": "Output format. Values: docx, pdf, pptx. Can be repeated (--format docx --format pdf). Defaults to docx and pdf."
                 },
                 {
                     "name": "reference-doc",
                     "type": "option",
                     "required": false,
-                    "description": "Template file for styling Office outputs (docx/pptx)."
+                    "description": "Template file for styling. Use a .docx template for Word output or .pptx for PowerPoint. Applies fonts, colors, and layout from the template."
                 }
             ]
         }
@@ -69,21 +75,16 @@
         "outputs": {
             "page_images": {
                 "path": "<output-dir>/page_###.png",
-                "description": "Numbered PNG pages from convert command."
+                "description": "Numbered PNG pages from convert command"
             },
             "markdown_file": {
                 "path": "<output-dir>/<stem>.md",
-                "description": "Markdown file from convert-to-markdown command."
-            },
-            "converted_files": {
-                "path": "<output-dir>/<stem>.<format>",
-                "description": "Output files from convert-markdown command."
+                "description": "Markdown file from convert-to-markdown command"
             }
         },
         "notes": [
-            "All commands return JSON to stdout with output file paths.",
-            "Use --output-dir to specify where files are written.",
-            "Check command exit code and JSON output for success/failure."
+            "All commands return JSON to stdout with output file paths",
+            "Check exit code for success (0) or failure (non-zero)"
         ]
     },
     "available_in_sandbox": true
