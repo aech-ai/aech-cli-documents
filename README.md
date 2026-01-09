@@ -60,9 +60,9 @@ rich output.
 The manifest exposes a `documentation` object with output paths and usage notes:
 
 - **outputs**:
-  - `page_images`: `output_dir/page_###.png` — numbered PNG pages from convert command.
-  - `markdown_file`: `output_dir/<stem>.md` — Markdown file from convert-to-markdown command.
-  - `converted_files`: `output_dir/<stem>.<format>` — output files from convert-markdown command.
+  - `page_images`: `<output-dir>/page_###.png` — numbered PNG pages from convert command.
+  - `markdown_file`: `<output-dir>/<stem>.md` — Markdown file from convert-to-markdown command.
+  - `converted_files`: `<output-dir>/<stem>.<format>` — output files from convert-markdown command.
 - **notes**:
   - All commands return JSON to stdout with output file paths.
   - Use `--output-dir` to specify where files are written.

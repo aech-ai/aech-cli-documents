@@ -14,7 +14,7 @@
                     "required": true
                 },
                 {
-                    "name": "output_dir",
+                    "name": "output-dir",
                     "type": "option",
                     "required": true
                 }
@@ -30,7 +30,7 @@
                     "required": true
                 },
                 {
-                    "name": "output_dir",
+                    "name": "output-dir",
                     "type": "option",
                     "required": true
                 }
@@ -46,7 +46,7 @@
                     "required": true
                 },
                 {
-                    "name": "output_dir",
+                    "name": "output-dir",
                     "type": "option",
                     "required": true
                 },
@@ -57,7 +57,7 @@
                     "description": "Output format (docx, pdf, pptx, etc.). Can be repeated for multiple outputs."
                 },
                 {
-                    "name": "reference_doc",
+                    "name": "reference-doc",
                     "type": "option",
                     "required": false,
                     "description": "Template file for styling Office outputs (docx/pptx)."
@@ -68,15 +68,15 @@
     "documentation": {
         "outputs": {
             "page_images": {
-                "path": "output_dir/page_###.png",
+                "path": "<output-dir>/page_###.png",
                 "description": "Numbered PNG pages from convert command."
             },
             "markdown_file": {
-                "path": "output_dir/<stem>.md",
+                "path": "<output-dir>/<stem>.md",
                 "description": "Markdown file from convert-to-markdown command."
             },
             "converted_files": {
-                "path": "output_dir/<stem>.<format>",
+                "path": "<output-dir>/<stem>.<format>",
                 "description": "Output files from convert-markdown command."
             }
         },
