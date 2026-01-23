@@ -1,5 +1,9 @@
 pdf2image
 Pillow
 typer
-markitdown[all]
 pypandoc-binary
+anthropic
+sentence-transformers
+numpy
+rich
+pydantic>=2.0

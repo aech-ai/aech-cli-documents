@@ -1,69 +1,265 @@
 # Agent Aech Documents CLI
 
-Document normalization utilities used by Agent Aech. The CLI ingests PDFs,
-Office formats, and raster images, then emits either per-page PNG renders or
-Markdown that other capabilities can index. It can also round-trip Markdown into
-polished DOCX/PDF deliverables via Pandoc for consistent presentation.
+Universal Document Corpus CLI for Agent Aech. This tool provides VLM-powered document
+intelligence with excellent retrieval through hybrid search (FTS + vector + RRF fusion).
+
+**Key Principle**: Invest LLM tokens at index time (once per document) to crystallize
+value for retrieval (free, fast, every query).
+
+## Installation
+
+```bash
+pip install -e .
+```
+
+**Dependencies**:
+- `pdf2image` requires poppler: `brew install poppler` (macOS) or `apt install poppler-utils` (Linux)
+- `pandoc` for markdown conversion: https://pandoc.org/installing.html
+
+## Configuration
+
+Models are configured via environment variables (set in your `.env` file):
+
+```bash
+# Required for all VLM operations
+ANTHROPIC_API_KEY=your-api-key
+VLM_MODEL=claude-sonnet-4-20250514
+
+# Required for enrichment (--enrich flag)
+ENRICHMENT_MODEL=claude-sonnet-4-20250514
+```
+
+**Never hardcode model names** - always use environment variables so they can be centrally managed.
 
 ## Commands
 
-### `convert`
-- **Input**: path to a PDF, Office document (DOCX/PPTX/XLSX/etc.), or existing
-  image file, plus `--output-dir` pointing to a writable folder inside the
-  sandbox.
-- **Behavior**: Office docs are converted to PDF via LibreOffice, PDFs are
-  rasterized with `pdf2image`, and single images are normalized to PNG.
-- **Output**: numbered files such as `page_001.png` saved in `output_dir`, and a
-  JSON payload listing the generated file paths.
-- **Example**:
-  ```bash
-  aech-cli-documents convert briefs/proposal.docx --output-dir build/proposal_images
-  ```
+### Document Conversion
 
-### `convert-to-markdown`
-- **Input**: supported document path plus `--output-dir`.
-- **Behavior**: Legacy Office formats are first upgraded to DOCX so MarkItDown
-  can parse them, then the command saves `<stem>.md` next to the other outputs.
-- **Output**: `<original_stem>.md` and a JSON object containing its path.
-- **Example**:
-  ```bash
-  aech-cli-documents convert-to-markdown scans/notes.pdf --output-dir build/notes_md
-  ```
+#### `convert`
+Convert documents to page images for VLM processing.
 
-### `convert-markdown`
-- **Input**: path to a Markdown file plus `--output-dir`. Pandoc must be
-  installed and accessible on `PATH`.
-- **Behavior**: Pandoc renders standardized outputs (DOCX/PDF by default) so
-  downstream users see a consistent template. Repeat `--format` to request
-  multiple targets (e.g. `--format docx --format pptx`). Optional
-  `--reference-doc` argument allows custom styling templates.
-- **Output**: one file per requested format plus a JSON payload summarizing the
-  generated paths.
-- **Example**:
-  ```bash
-  aech-cli-documents convert-markdown drafts/spec.md --output-dir build/specs --format docx --format pdf
-  ```
+```bash
+aech-cli-documents convert document.pdf --output-dir ./images
+```
 
-> **Note:** Pandoc is an external dependency. Install it from
-> https://pandoc.org/installing.html (or ship it with your runtime) before
-> running `convert-markdown`.
+- **Input**: PDF, Office document (DOCX/PPTX/XLSX), or image file
+- **Output**: Numbered PNG files (`page_001.png`, `page_002.png`, ...)
 
-## Manifest-Based `--help`
+#### `convert-to-markdown`
+Convert any document to markdown using VLM.
 
-Aech installers call `--help` on every CLI. This entry point intercepts a bare
-`aech-cli-documents --help` and prints the JSON manifest (same schema as
-`manifest.json`). Sub-command help (`convert --help`, etc.) still renders Typer's
-rich output.
+```bash
+aech-cli-documents convert-to-markdown document.pdf --output-dir ./output
+```
 
-## Manifest Documentation
+- **Input**: Any supported document format
+- **Output**: Markdown file with full visual understanding
+- **Flags**: `--model` to override the `VLM_MODEL` env var
 
-The manifest exposes a `documentation` object with output paths and usage notes:
+**Note**: Uses VLM ONLY - no text extraction libraries. The document is rendered
+as images and processed by the model specified in `VLM_MODEL` for full visual
+understanding of layout, tables, diagrams, and handwriting.
 
-- **outputs**:
-  - `page_images`: `<output-dir>/page_###.png` — numbered PNG pages from convert command.
-  - `markdown_file`: `<output-dir>/<stem>.md` — Markdown file from convert-to-markdown command.
-  - `converted_files`: `<output-dir>/<stem>.<format>` — output files from convert-markdown command.
-- **notes**:
-  - All commands return JSON to stdout with output file paths.
-  - Use `--output-dir` to specify where files are written.
-  - Check command exit code and JSON output for success/failure.
+#### `convert-markdown`
+Convert markdown to polished deliverables (DOCX, PDF, PPTX).
+
+```bash
+aech-cli-documents convert-markdown spec.md --output-dir ./output --format docx --format pdf
+```
+
+- **Input**: Markdown file
+- **Output**: Requested formats via Pandoc
+
+---
+
+### Corpus Management
+
+#### `corpus create`
+Create a new corpus database.
+
+```bash
+aech-cli-documents corpus create ./sales.db
+aech-cli-documents corpus create ./legal.db --name "Legal Documents 2024"
+```
+
+#### `corpus info`
+Show corpus statistics.
+
+```bash
+aech-cli-documents corpus info ./sales.db
+```
+
+Output:
+```
+Corpus: sales.db
+Name: Sales Communications
+Documents: 1,247
+Sections: 8,432
+Chunks: 12,891
+Created: 2024-01-15
+```
+
+#### `corpus list`
+List documents in a corpus.
+
+```bash
+aech-cli-documents corpus list ./sales.db
+aech-cli-documents corpus list ./sales.db --limit 20
+```
+
+---
+
+### Document Ingestion
+
+#### `ingest`
+Add documents to a corpus with optional LLM enrichment.
+
+```bash
+# Basic ingestion
+aech-cli-documents ingest report.pdf --corpus ./company.db
+
+# With LLM enrichment (summaries, HyDE questions, classification)
+aech-cli-documents ingest contract.pdf --corpus ./legal.db --enrich
+
+# Recursive directory ingestion
+aech-cli-documents ingest ./documents/ --corpus ./kb.db --recursive --enrich
+
+# With metadata
+aech-cli-documents ingest email.eml --corpus ./sales.db \
+  --source-type email \
+  --tags "q4,prospect,acme"
+```
+
+**Enrichment** (`--enrich` flag) generates for each section:
+- Summary (1-2 sentences)
+- Key terms (5-10 concepts)
+- Hypothetical questions (HyDE - questions this section answers)
+- Semantic classification (definitions, obligations, procedures, etc.)
+- Named entities (people, companies, products)
+- Importance score (filter boilerplate)
+
+---
+
+### Search
+
+#### `search`
+Hybrid search across a corpus using FTS + vector + RRF fusion.
+
+```bash
+# Basic search
+aech-cli-documents search "payment terms" --corpus ./legal.db
+
+# With semantic type filter
+aech-cli-documents search "payment terms" --corpus ./legal.db \
+  --semantic-type obligations \
+  --limit 10
+
+# JSON output with full content
+aech-cli-documents search "python experience" --corpus ./hr.db \
+  --format json \
+  --include-content
+```
+
+**Semantic Types**:
+- `definitions` - Term definitions, glossaries
+- `obligations` - Requirements, duties, must-do items
+- `rights` - Permissions, entitlements
+- `procedures` - Step-by-step processes
+- `background` - Context, history, explanations
+- `technical` - Technical specifications, code
+- `financial` - Numbers, budgets, pricing
+- `legal` - Legal clauses, terms
+- `boilerplate` - Standard text, disclaimers
+
+---
+
+### Export
+
+#### `export`
+Export documents or search results.
+
+```bash
+aech-cli-documents export doc-123 --corpus ./kb.db --format markdown
+```
+
+---
+
+## Architecture
+
+```
+Document → VLM (images) → Markdown → Structure Extraction → Enrichment → Hybrid Search
+                                           ↓
+                              ┌─────────────────────────┐
+                              │  Hierarchical Tree      │
+                              │  (sections/subsections) │
+                              └─────────────────────────┘
+                                           ↓
+                              ┌─────────────────────────┐
+                              │  Structure-Aware Chunks │
+                              │  (respect boundaries)   │
+                              └─────────────────────────┘
+                                           ↓
+                              ┌─────────────────────────┐
+                              │  bge-m3 Embeddings +    │
+                              │  FTS5 Full-Text Index   │
+                              └─────────────────────────┘
+```
+
+### Why VLM Only?
+
+- **Format agnostic**: Any document becomes images
+- **Full understanding**: VLM sees layout, tables, diagrams
+- **Handles scans**: OCR built-in, even handwriting
+- **No parsing bugs**: No text extraction library quirks
+
+### Why Enrich at Index Time?
+
+- **Index cost**: O(documents) - pay ONCE per document
+- **Query cost**: O(1) - FREE, just vector similarity
+- **Break-even**: ~10 queries per document
+
+### Hybrid Search (RRF)
+
+Combines:
+1. **FTS5** (BM25) - Keyword matching, exact terms
+2. **Vector** (bge-m3) - Semantic similarity
+3. **RRF Fusion** - Best of both worlds
+
+## Use Cases
+
+- **Agent Aech**: Research & knowledge building capability
+- **Sales**: Email database with searchable context
+- **HR**: Resume knowledge base
+- **Legal**: Contract search with semantic filtering
+- **Inbox Assistant**: Email and attachment corpus
+
+## Library Usage
+
+```python
+from aech_cli_documents.corpus import (
+    Corpus,
+    create_corpus,
+    hybrid_search,
+    chunk_document,
+    extract_structure,
+    enrich_document,
+)
+
+# Create corpus
+corpus = create_corpus("./my_corpus.db", name="My Knowledge Base")
+
+# Or open existing
+corpus = Corpus("./my_corpus.db")
+
+# Add document
+doc = corpus.add_document(
+    name="contract.pdf",
+    source_type="file",
+    raw_markdown=markdown_content,
+)
+
+# Search
+results = hybrid_search(corpus, "payment terms", limit=10)
+for r in results:
+    print(f"{r.document_name} - {r.section_title}: {r.content_preview}")
+```
