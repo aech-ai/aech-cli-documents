@@ -12,7 +12,7 @@ dependencies = [
     "typer",
     "pdf2image",
     "Pillow",
-    "anthropic",
+    "pydantic-ai",
     "sentence-transformers",
     "numpy",
     "rich",

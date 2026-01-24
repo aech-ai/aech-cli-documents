@@ -1,172 +1,157 @@
 """LLM-powered section enrichment - summaries, HyDE questions, classification.
 
-Model configuration via environment variables:
-- ANTHROPIC_API_KEY: API key for Anthropic
-- ENRICHMENT_MODEL: Model to use for enrichment tasks (required)
+Uses pydantic-ai with model configuration from environment variables.
 """
 
-import json
 import os
 from typing import Optional, Callable
 
-import anthropic
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent
 
 from .models import Section, SectionEnrichment
+from .model_utils import parse_model_string, get_model_settings
 from .structure import TreeNode
 
 
-def get_enrichment_model() -> str:
-    """Get enrichment model from environment. Raises if not set."""
-    model = os.environ.get("ENRICHMENT_MODEL")
-    if not model:
-        raise ValueError(
-            "ENRICHMENT_MODEL environment variable not set. "
-            "Set it in your .env file (e.g., ENRICHMENT_MODEL=claude-sonnet-4-20250514)"
-        )
-    return model
+class EnrichmentOutput(BaseModel):
+    """Structured output for section enrichment."""
+
+    summary: str = Field(description="1-2 sentence summary of what this section covers")
+    key_terms: list[str] = Field(default_factory=list, description="3-7 important concepts, terms, or phrases")
+    hypothetical_questions: list[str] = Field(
+        default_factory=list,
+        description="2-5 questions someone might ask that this section answers (HyDE)",
+    )
+    semantic_type: str = Field(
+        default="other",
+        description="Content type: definitions|obligations|rights|procedures|background|technical|financial|legal|boilerplate|other",
+    )
+    entities: list[dict] = Field(
+        default_factory=list,
+        description="Named entities: [{name, type}] where type is person|company|product|location|date|other",
+    )
+    importance_score: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="How important is this content vs boilerplate (0.0-1.0)",
+    )
 
 
-SECTION_ENRICHMENT_PROMPT = """Analyze this document section and provide structured enrichment.
+ENRICHMENT_SYSTEM_PROMPT = """You are an expert at analyzing document sections for search optimization.
 
-Section Path: {section_path}
-Section Title: {section_title}
-
-Content:
-{section_content}
-
-Respond with ONLY a JSON object (no markdown code blocks, no explanation):
-{{
-  "summary": "1-2 sentence summary of what this section covers",
-  "key_terms": ["term1", "term2", "term3"],
-  "hypothetical_questions": [
-    "Question 1 that this section answers?",
-    "Question 2 that this section answers?",
-    "Question 3 that this section answers?"
-  ],
-  "semantic_type": "one of: definitions|obligations|rights|procedures|background|technical|financial|legal|boilerplate|other",
-  "entities": [
-    {{"name": "Entity Name", "type": "person|company|product|location|date|other"}}
-  ],
-  "importance_score": 0.8
-}}
-
-Guidelines:
+Your goal is to enrich each section with metadata that improves retrieval:
 - summary: Focus on what information this section provides
-- key_terms: 3-7 important concepts, terms, or phrases
-- hypothetical_questions: 2-5 questions someone might ask that this section answers
+- key_terms: Important concepts, terms, phrases for search matching
+- hypothetical_questions: Questions someone might ask that this section answers
 - semantic_type: Classify the nature of this content
-- entities: Extract named entities mentioned (people, companies, products, etc.)
-- importance_score: 0.0-1.0, how important is this content vs boilerplate/filler"""
+- entities: Extract named entities (people, companies, products, etc.)
+- importance_score: 0.0-1.0, how important vs boilerplate/filler
+
+Semantic types:
+- definitions: Term definitions, glossaries
+- obligations: Requirements, duties, must-do items
+- rights: Permissions, entitlements
+- procedures: Step-by-step processes
+- background: Context, history, explanations
+- technical: Technical specifications, code
+- financial: Numbers, budgets, pricing
+- legal: Legal clauses, terms
+- boilerplate: Standard text, disclaimers
+- other: Doesn't fit above categories"""
 
 
-BATCH_ENRICHMENT_PROMPT = """Analyze these document sections and provide structured enrichment for each.
+def _build_enrichment_agent() -> Agent:
+    """Build the pydantic-ai agent for section enrichment."""
+    model_string = os.getenv("ENRICHMENT_MODEL", os.getenv("AECH_LLM_MODEL", "openai:gpt-4o-mini"))
+    model_name, _ = parse_model_string(model_string)
+    model_settings = get_model_settings(model_string)
 
-{sections_text}
-
-For EACH section, respond with a JSON object on its own line. The format for each section should be:
-{{"section_id": "...", "summary": "...", "key_terms": [...], "hypothetical_questions": [...], "semantic_type": "...", "entities": [...], "importance_score": 0.8}}
-
-Output one JSON object per line, no other text."""
-
-
-def parse_enrichment_json(text: str) -> dict:
-    """Parse enrichment JSON from LLM response."""
-    # Try to extract JSON from the response
-    text = text.strip()
-
-    # Remove markdown code block if present
-    if text.startswith("```"):
-        lines = text.split("\n")
-        # Remove first and last lines (```json and ```)
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        text = "\n".join(lines)
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        # Try to find JSON object in the text
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start >= 0 and end > start:
-            try:
-                return json.loads(text[start:end])
-            except json.JSONDecodeError:
-                pass
-
-    # Return default if parsing fails
-    return {
-        "summary": "",
-        "key_terms": [],
-        "hypothetical_questions": [],
-        "semantic_type": "other",
-        "entities": [],
-        "importance_score": 0.5,
-    }
+    return Agent(
+        model_name,
+        output_type=EnrichmentOutput,
+        instructions=ENRICHMENT_SYSTEM_PROMPT,
+        model_settings=model_settings,
+    )
 
 
-def enrich_section(
-    node: TreeNode,
-    model: Optional[str] = None,
-    api_key: Optional[str] = None,
-) -> SectionEnrichment:
+# Lazy-loaded agent
+_enrichment_agent: Agent | None = None
+
+
+def _get_agent() -> Agent:
+    """Get or create the enrichment agent."""
+    global _enrichment_agent
+    if _enrichment_agent is None:
+        _enrichment_agent = _build_enrichment_agent()
+    return _enrichment_agent
+
+
+async def enrich_section_async(node: TreeNode) -> SectionEnrichment:
     """
-    Enrich a single section with LLM-generated metadata.
+    Enrich a single section with LLM-generated metadata (async).
 
     Args:
         node: TreeNode to enrich
-        model: Model to use (uses ENRICHMENT_MODEL env var if not provided)
-        api_key: API key (uses ANTHROPIC_API_KEY env var if not provided)
 
     Returns:
         SectionEnrichment with generated metadata
     """
-    model = model or get_enrichment_model()
-    client = anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
-
     # Truncate content if too long
     content = node.content
     if len(content) > 15000:
         content = content[:15000] + "\n\n[Content truncated...]"
 
-    prompt = SECTION_ENRICHMENT_PROMPT.format(
-        section_path=node.path,
-        section_title=node.title,
-        section_content=content,
-    )
+    prompt = f"""Analyze this document section:
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
+Section Path: {node.path}
+Section Title: {node.title}
 
-    result = parse_enrichment_json(response.content[0].text)
+Content:
+{content}"""
+
+    agent = _get_agent()
+    result = await agent.run(prompt)
+    output = result.output
 
     return SectionEnrichment(
-        summary=result.get("summary", ""),
-        key_terms=result.get("key_terms", []),
-        hypothetical_questions=result.get("hypothetical_questions", []),
-        semantic_type=result.get("semantic_type", "other"),
-        entities=result.get("entities", []),
-        importance_score=result.get("importance_score", 0.5),
+        summary=output.summary,
+        key_terms=output.key_terms,
+        hypothetical_questions=output.hypothetical_questions,
+        semantic_type=output.semantic_type,
+        entities=output.entities,
+        importance_score=output.importance_score,
     )
 
 
-def enrich_document(
+def enrich_section(node: TreeNode, **kwargs) -> SectionEnrichment:
+    """
+    Enrich a single section with LLM-generated metadata (sync wrapper).
+
+    Args:
+        node: TreeNode to enrich
+        **kwargs: Ignored (for backward compatibility)
+
+    Returns:
+        SectionEnrichment with generated metadata
+    """
+    import asyncio
+
+    return asyncio.get_event_loop().run_until_complete(enrich_section_async(node))
+
+
+async def enrich_document_async(
     nodes: list[TreeNode],
-    model: Optional[str] = None,
-    api_key: Optional[str] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     skip_small_sections: bool = True,
     min_content_length: int = 50,
 ) -> dict[str, SectionEnrichment]:
     """
-    Enrich all sections in a document.
+    Enrich all sections in a document (async).
 
     Args:
         nodes: List of TreeNodes to enrich
-        model: Model to use (uses ENRICHMENT_MODEL env var if not provided)
-        api_key: API key (uses ANTHROPIC_API_KEY env var if not provided)
         progress_callback: Optional callback(current, total, message)
         skip_small_sections: Skip sections with little content
         min_content_length: Minimum content length to enrich
@@ -196,10 +181,9 @@ def enrich_document(
             progress_callback(i, len(enrichable_nodes), f"Enriching: {node.title[:30]}...")
 
         try:
-            enrichment = enrich_section(node, model=model, api_key=api_key)
+            enrichment = await enrich_section_async(node)
             enrichments[node.id] = enrichment
         except Exception as e:
-            # Log error but continue
             print(f"Warning: Failed to enrich section '{node.title}': {e}")
             enrichments[node.id] = SectionEnrichment(
                 summary="",
@@ -214,6 +198,33 @@ def enrich_document(
         progress_callback(len(enrichable_nodes), len(enrichable_nodes), "Enrichment complete")
 
     return enrichments
+
+
+def enrich_document(
+    nodes: list[TreeNode],
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    skip_small_sections: bool = True,
+    min_content_length: int = 50,
+    **kwargs,
+) -> dict[str, SectionEnrichment]:
+    """
+    Enrich all sections in a document (sync wrapper).
+
+    Args:
+        nodes: List of TreeNodes to enrich
+        progress_callback: Optional callback(current, total, message)
+        skip_small_sections: Skip sections with little content
+        min_content_length: Minimum content length to enrich
+        **kwargs: Ignored (for backward compatibility)
+
+    Returns:
+        Dict mapping node IDs to SectionEnrichment
+    """
+    import asyncio
+
+    return asyncio.get_event_loop().run_until_complete(
+        enrich_document_async(nodes, progress_callback, skip_small_sections, min_content_length)
+    )
 
 
 def apply_enrichment_to_section(section: Section, enrichment: SectionEnrichment) -> Section:

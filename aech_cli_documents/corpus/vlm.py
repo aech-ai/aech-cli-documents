@@ -5,9 +5,7 @@ Document → Images → VLM → Markdown
 
 No text extraction hacks - full visual understanding.
 
-Model configuration via environment variables:
-- ANTHROPIC_API_KEY: API key for Anthropic
-- VLM_MODEL: Model to use for vision tasks (required)
+Uses pydantic-ai with model configuration from environment variables.
 """
 
 import base64
@@ -15,20 +13,12 @@ import os
 from pathlib import Path
 from typing import Optional
 
-import anthropic
+from pydantic_ai import Agent, BinaryContent
 
-
-def get_vlm_model() -> str:
-    """Get VLM model from environment. Raises if not set."""
-    model = os.environ.get("VLM_MODEL")
-    if not model:
-        raise ValueError(
-            "VLM_MODEL environment variable not set. "
-            "Set it in your .env file (e.g., VLM_MODEL=claude-sonnet-4-20250514)"
-        )
-    return model
 from pdf2image import convert_from_path
 from PIL import Image
+
+from .model_utils import parse_model_string, get_model_settings
 
 
 # Prompt for markdown extraction
@@ -60,18 +50,65 @@ Remove any page break artifacts or repeated headers.
 Output ONLY the merged Markdown content."""
 
 
-def image_to_base64(image_path: Path) -> str:
-    """Convert image file to base64 string."""
+def _build_vlm_agent() -> Agent:
+    """Build the pydantic-ai agent for VLM conversion."""
+    model_string = os.getenv("VLM_MODEL", os.getenv("AECH_LLM_MODEL", "openai:gpt-4o"))
+    model_name, _ = parse_model_string(model_string)
+    model_settings = get_model_settings(model_string)
+
+    return Agent(
+        model_name,
+        instructions=MARKDOWN_EXTRACTION_PROMPT,
+        model_settings=model_settings,
+    )
+
+
+def _build_merge_agent() -> Agent:
+    """Build the pydantic-ai agent for merging pages."""
+    model_string = os.getenv("VLM_MODEL", os.getenv("AECH_LLM_MODEL", "openai:gpt-4o"))
+    model_name, _ = parse_model_string(model_string)
+    model_settings = get_model_settings(model_string)
+
+    return Agent(
+        model_name,
+        instructions=MULTI_PAGE_MERGE_PROMPT,
+        model_settings=model_settings,
+    )
+
+
+# Lazy-loaded agents
+_vlm_agent: Agent | None = None
+_merge_agent: Agent | None = None
+
+
+def _get_vlm_agent() -> Agent:
+    """Get or create the VLM agent."""
+    global _vlm_agent
+    if _vlm_agent is None:
+        _vlm_agent = _build_vlm_agent()
+    return _vlm_agent
+
+
+def _get_merge_agent() -> Agent:
+    """Get or create the merge agent."""
+    global _merge_agent
+    if _merge_agent is None:
+        _merge_agent = _build_merge_agent()
+    return _merge_agent
+
+
+def image_to_bytes(image_path: Path) -> bytes:
+    """Read image file as bytes."""
     with open(image_path, "rb") as f:
-        return base64.standard_b64encode(f.read()).decode("utf-8")
+        return f.read()
 
 
-def pil_image_to_base64(image: Image.Image) -> str:
-    """Convert PIL image to base64 string."""
+def pil_image_to_bytes(image: Image.Image) -> bytes:
+    """Convert PIL image to bytes."""
     import io
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
-    return base64.standard_b64encode(buffer.getvalue()).decode("utf-8")
+    return buffer.getvalue()
 
 
 def get_media_type(image_path: Path) -> str:
@@ -87,94 +124,57 @@ def get_media_type(image_path: Path) -> str:
     return types.get(suffix, "image/png")
 
 
-def convert_page_to_markdown(
-    client: anthropic.Anthropic,
-    image_base64: str,
-    media_type: str = "image/png",
-    model: Optional[str] = None,
-) -> str:
-    """Convert a single page image to markdown using VLM."""
-    model = model or get_vlm_model()
-    response = client.messages.create(
-        model=model,
-        max_tokens=8192,
-        messages=[
+async def convert_page_to_markdown_async(image_bytes: bytes, media_type: str = "image/png") -> str:
+    """Convert a single page image to markdown using VLM (async)."""
+    agent = _get_vlm_agent()
+
+    result = await agent.run(
+        "Convert this document page to Markdown.",
+        message_history=[
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_base64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": MARKDOWN_EXTRACTION_PROMPT,
-                    },
+                    BinaryContent(data=image_bytes, media_type=media_type),
+                    "Convert this document page to well-structured Markdown.",
                 ],
             }
         ],
     )
-    return response.content[0].text
+    return result.output
 
 
-def merge_page_markdowns(
-    client: anthropic.Anthropic,
-    page_markdowns: list[str],
-    model: Optional[str] = None,
-) -> str:
-    """Merge multiple page markdowns into a coherent document."""
+async def merge_page_markdowns_async(page_markdowns: list[str]) -> str:
+    """Merge multiple page markdowns into a coherent document (async)."""
     if len(page_markdowns) == 1:
         return page_markdowns[0]
 
-    model = model or get_vlm_model()
+    agent = _get_merge_agent()
 
-    # For very long documents, merge in batches
     combined = "\n\n---PAGE BREAK---\n\n".join(
         f"## Page {i+1}\n\n{md}" for i, md in enumerate(page_markdowns)
     )
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=16384,
-        messages=[
-            {
-                "role": "user",
-                "content": f"{MULTI_PAGE_MERGE_PROMPT}\n\n{combined}",
-            }
-        ],
-    )
-    return response.content[0].text
+    result = await agent.run(combined)
+    return result.output
 
 
-def convert_to_markdown_vlm(
+async def convert_to_markdown_vlm_async(
     input_path: Path,
-    model: Optional[str] = None,
-    api_key: Optional[str] = None,
     progress_callback: Optional[callable] = None,
 ) -> str:
     """
-    Convert any document to Markdown using VLM.
+    Convert any document to Markdown using VLM (async).
 
     Args:
         input_path: Path to document (PDF, image, or office doc)
-        model: Model to use (uses VLM_MODEL env var if not provided)
-        api_key: API key (uses ANTHROPIC_API_KEY env var if not provided)
         progress_callback: Optional callback(current, total, message)
 
     Returns:
         Markdown string
 
     Environment Variables:
-        VLM_MODEL: Required if model param not provided
-        ANTHROPIC_API_KEY: Required if api_key param not provided
+        VLM_MODEL or AECH_LLM_MODEL: Model to use for VLM conversion
     """
-    model = model or get_vlm_model()
-    client = anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
-
     input_path = Path(input_path)
     suffix = input_path.suffix.lower()
 
@@ -195,24 +195,24 @@ def convert_to_markdown_vlm(
             if progress_callback:
                 progress_callback(i, len(images), f"Processing page {i+1}/{len(images)}...")
 
-            image_base64 = pil_image_to_base64(image)
-            md = convert_page_to_markdown(client, image_base64, "image/png", model)
+            image_bytes = pil_image_to_bytes(image)
+            md = await convert_page_to_markdown_async(image_bytes, "image/png")
             page_markdowns.append(md)
 
         if progress_callback:
             progress_callback(len(images), len(images), "Merging pages...")
 
         # Merge pages
-        return merge_page_markdowns(client, page_markdowns, model)
+        return await merge_page_markdowns_async(page_markdowns)
 
     elif suffix in [".png", ".jpg", ".jpeg", ".gif", ".webp"]:
         # Single image
         if progress_callback:
             progress_callback(0, 1, "Processing image...")
 
-        image_base64 = image_to_base64(input_path)
+        image_bytes = image_to_bytes(input_path)
         media_type = get_media_type(input_path)
-        result = convert_page_to_markdown(client, image_base64, media_type, model)
+        result = await convert_page_to_markdown_async(image_bytes, media_type)
 
         if progress_callback:
             progress_callback(1, 1, "Done")
@@ -243,10 +243,8 @@ def convert_to_markdown_vlm(
                 raise RuntimeError(f"Failed to convert {input_path} to PDF")
 
             # Recursively process the PDF
-            return convert_to_markdown_vlm(
+            return await convert_to_markdown_vlm_async(
                 pdf_path,
-                model=model,
-                api_key=api_key,
                 progress_callback=progress_callback
             )
 
@@ -258,27 +256,43 @@ def convert_to_markdown_vlm(
         raise ValueError(f"Unsupported file type: {suffix}")
 
 
-def convert_images_to_markdown(
+def convert_to_markdown_vlm(
+    input_path: Path,
+    progress_callback: Optional[callable] = None,
+    **kwargs,
+) -> str:
+    """
+    Convert any document to Markdown using VLM (sync wrapper).
+
+    Args:
+        input_path: Path to document (PDF, image, or office doc)
+        progress_callback: Optional callback(current, total, message)
+        **kwargs: Ignored (for backward compatibility)
+
+    Returns:
+        Markdown string
+    """
+    import asyncio
+
+    return asyncio.get_event_loop().run_until_complete(
+        convert_to_markdown_vlm_async(input_path, progress_callback)
+    )
+
+
+async def convert_images_to_markdown_async(
     image_paths: list[Path],
-    model: Optional[str] = None,
-    api_key: Optional[str] = None,
     progress_callback: Optional[callable] = None,
 ) -> str:
     """
-    Convert a list of images (e.g., from previous convert command) to Markdown.
+    Convert a list of images to Markdown (async).
 
     Args:
         image_paths: List of paths to images
-        model: Model to use (uses VLM_MODEL env var if not provided)
-        api_key: API key (uses ANTHROPIC_API_KEY env var if not provided)
         progress_callback: Optional callback(current, total, message)
 
     Returns:
         Markdown string
     """
-    model = model or get_vlm_model()
-    client = anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
-
     if progress_callback:
         progress_callback(0, len(image_paths), f"Processing {len(image_paths)} images...")
 
@@ -287,12 +301,35 @@ def convert_images_to_markdown(
         if progress_callback:
             progress_callback(i, len(image_paths), f"Processing {image_path.name}...")
 
-        image_base64 = image_to_base64(image_path)
+        image_bytes = image_to_bytes(image_path)
         media_type = get_media_type(image_path)
-        md = convert_page_to_markdown(client, image_base64, media_type, model)
+        md = await convert_page_to_markdown_async(image_bytes, media_type)
         page_markdowns.append(md)
 
     if progress_callback:
         progress_callback(len(image_paths), len(image_paths), "Merging pages...")
 
-    return merge_page_markdowns(client, page_markdowns, model)
+    return await merge_page_markdowns_async(page_markdowns)
+
+
+def convert_images_to_markdown(
+    image_paths: list[Path],
+    progress_callback: Optional[callable] = None,
+    **kwargs,
+) -> str:
+    """
+    Convert a list of images to Markdown (sync wrapper).
+
+    Args:
+        image_paths: List of paths to images
+        progress_callback: Optional callback(current, total, message)
+        **kwargs: Ignored (for backward compatibility)
+
+    Returns:
+        Markdown string
+    """
+    import asyncio
+
+    return asyncio.get_event_loop().run_until_complete(
+        convert_images_to_markdown_async(image_paths, progress_callback)
+    )

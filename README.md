@@ -18,18 +18,20 @@ pip install -e .
 
 ## Configuration
 
-Models are configured via environment variables (set in your `.env` file):
+Models are configured via environment variables (uses pydantic-ai):
 
 ```bash
-# Required for all VLM operations
-ANTHROPIC_API_KEY=your-api-key
-VLM_MODEL=claude-sonnet-4-20250514
+# Model for VLM document conversion (falls back to AECH_LLM_MODEL)
+VLM_MODEL=openai:gpt-4o
 
-# Required for enrichment (--enrich flag)
-ENRICHMENT_MODEL=claude-sonnet-4-20250514
+# Model for section enrichment (falls back to AECH_LLM_MODEL)
+ENRICHMENT_MODEL=openai:gpt-4o-mini
+
+# Default model (used if specific model not set)
+AECH_LLM_MODEL=openai:gpt-4o
 ```
 
-**Never hardcode model names** - always use environment variables so they can be centrally managed.
+Model format: `provider:model` (e.g., `openai:gpt-4o`, `anthropic:claude-sonnet-4`)
 
 ## Commands
 

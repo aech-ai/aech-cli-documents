@@ -15,7 +15,7 @@ import json
 import subprocess
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
@@ -149,13 +149,12 @@ def convert(
 def convert_to_markdown(
     input_path: str,
     output_dir: str = typer.Option(..., "--output-dir", "-o", help="Directory to save output markdown"),
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model override (uses VLM_MODEL env var by default)"),
 ):
     """
     Converts a document to Markdown using VLM.
 
     Full visual understanding - no text extraction hacks.
-    Requires VLM_MODEL and ANTHROPIC_API_KEY environment variables.
+    Model configured via VLM_MODEL or AECH_LLM_MODEL environment variables.
     """
     from .corpus.vlm import convert_to_markdown_vlm
 
@@ -171,10 +170,7 @@ def convert_to_markdown(
         console.print(f"[dim]{message}[/dim]")
 
     try:
-        kwargs = {"progress_callback": progress_callback}
-        if model:
-            kwargs["model"] = model
-        markdown = convert_to_markdown_vlm(input_file, **kwargs)
+        markdown = convert_to_markdown_vlm(input_file, progress_callback=progress_callback)
 
         output_filename = input_file.stem + ".md"
         output_file = out_path / output_filename
@@ -372,15 +368,13 @@ def ingest(
     source_type: str = typer.Option("file", "--type", "-t", help="Source type"),
     tags: Optional[str] = typer.Option(None, "--tags", help="Comma-separated tags"),
     recursive: bool = typer.Option(False, "--recursive", "-r", help="Process directory recursively"),
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model override (uses VLM_MODEL/ENRICHMENT_MODEL env vars by default)"),
 ):
     """
     Ingest document(s) into a corpus with optional LLM enrichment.
 
-    Requires environment variables:
-    - VLM_MODEL: For document conversion
-    - ENRICHMENT_MODEL: For section enrichment (if --enrich)
-    - ANTHROPIC_API_KEY: API key
+    Model configured via environment variables:
+    - VLM_MODEL or AECH_LLM_MODEL: For document conversion
+    - ENRICHMENT_MODEL or AECH_LLM_MODEL: For section enrichment (if --enrich)
     """
     from .corpus.database import Corpus
     from .corpus.vlm import convert_to_markdown_vlm
@@ -436,10 +430,7 @@ def ingest(
                 if file_path.suffix.lower() in ['.md', '.markdown', '.txt']:
                     markdown = file_path.read_text()
                 else:
-                    vlm_kwargs = {}
-                    if model:
-                        vlm_kwargs["model"] = model
-                    markdown = convert_to_markdown_vlm(file_path, **vlm_kwargs)
+                    markdown = convert_to_markdown_vlm(file_path)
 
                 # Step 2: Extract structure
                 progress.update(task, description=f"[cyan]Extracting structure...[/cyan]")
@@ -480,19 +471,15 @@ def ingest(
                 # Step 4: Enrichment (if enabled)
                 if enrich and tree.all_nodes:
                     progress.update(task, description=f"[yellow]Enriching sections...[/yellow]")
-                    enrich_kwargs = {}
-                    if model:
-                        enrich_kwargs["model"] = model
                     enrichments = enrich_document(
                         [n for n in tree.all_nodes if n.level > 0],
-                        **enrich_kwargs,
                     )
 
                     for node_id, enrichment in enrichments.items():
                         if node_id in sections_dict:
                             apply_enrichment_to_section(sections_dict[node_id], enrichment)
 
-                    doc.enriched_at = datetime.utcnow()
+                    doc.enriched_at = datetime.now(timezone.utc)
 
                 # Step 5: Chunk
                 progress.update(task, description=f"[cyan]Chunking...[/cyan]")
@@ -517,7 +504,7 @@ def ingest(
                 corpus.add_chunks_batch(chunks)
 
                 # Update corpus metadata
-                corpus.set_meta('updated_at', datetime.utcnow().isoformat())
+                corpus.set_meta('updated_at', datetime.now(timezone.utc).isoformat())
 
                 progress.update(task, description=f"[green]Done: {file_path.name}[/green]")
 
