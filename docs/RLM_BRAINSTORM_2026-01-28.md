@@ -1,5 +1,7 @@
 # RLM Integration Brainstorm
 
+/Users/steven/.claude/plans/peaceful-bubbling-kahn.md
+
 **Date**: 2026-01-28
 **Context**: Exploring how to integrate Recursive Language Models (RLM) into aech-cli-documents
 
