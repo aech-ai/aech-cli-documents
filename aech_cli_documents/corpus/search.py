@@ -1,10 +1,11 @@
-"""Hybrid search - FTS + vector + RRF fusion."""
+"""Hybrid search - FTS + vector + RRF fusion with optional query expansion."""
 
 import sqlite3
 from typing import Optional
 
 from .database import Corpus, bytes_to_embedding
 from .embeddings import encode_text, cosine_similarity, batch_cosine_similarity
+from .expansion import expand_query, QueryExpansion
 from .models import SearchResult
 
 
@@ -129,6 +130,134 @@ def hybrid_search(
     for chunk_id in all_chunk_ids:
         fts_score, fts_rank = fts_scores.get(chunk_id, (0, len(fts_results) + 100))
         vec_score, vec_rank = vector_scores.get(chunk_id, (0, len(vector_results) + 100))
+
+        # RRF combination
+        rrf_total = (
+            fts_weight * rrf_score(fts_rank) +
+            vector_weight * rrf_score(vec_rank)
+        )
+
+        combined_scores.append({
+            "chunk_id": chunk_id,
+            "combined_score": rrf_total,
+            "fts_score": fts_score if chunk_id in fts_scores else None,
+            "vector_score": vec_score if chunk_id in vector_scores else None,
+            "fts_rank": fts_rank if chunk_id in fts_scores else None,
+            "vector_rank": vec_rank if chunk_id in vector_scores else None,
+        })
+
+    # Sort by combined score
+    combined_scores.sort(key=lambda x: x["combined_score"], reverse=True)
+
+    # Fetch chunk details and build results
+    results = []
+    with corpus.connection() as conn:
+        for item in combined_scores[:limit * 2]:  # Fetch extra for filtering
+            row = conn.execute("""
+                SELECT c.*, d.name as document_name
+                FROM chunks c
+                JOIN documents d ON c.document_id = d.id
+                WHERE c.id = ?
+            """, (item["chunk_id"],)).fetchone()
+
+            if not row:
+                continue
+
+            # Apply semantic type filter
+            if semantic_types and row['semantic_type'] not in semantic_types:
+                continue
+
+            # Create preview
+            content = row['content'] or ""
+            preview = content[:300] + "..." if len(content) > 300 else content
+
+            results.append(SearchResult(
+                chunk_id=row['id'],
+                document_id=row['document_id'],
+                document_name=row['document_name'],
+                section_path=row['section_path'],
+                section_title=row['section_title'],
+                content=content,
+                content_preview=preview,
+                score=item["combined_score"],
+                fts_score=item["fts_score"],
+                vector_score=item["vector_score"],
+                fts_rank=item["fts_rank"],
+                vector_rank=item["vector_rank"],
+                semantic_type=row['semantic_type'],
+                section_summary=row['section_summary'],
+            ))
+
+            if len(results) >= limit:
+                break
+
+    return results
+
+
+def expanded_hybrid_search(
+    corpus: Corpus,
+    query: str,
+    limit: int = 20,
+    fts_weight: float = 1.0,
+    vector_weight: float = 1.0,
+    semantic_types: Optional[list[str]] = None,
+) -> list[SearchResult]:
+    """
+    Hybrid search with query expansion for improved recall.
+
+    Expands the query into multiple variants (lex, vec, hyde) using an LLM,
+    then searches with all variants and combines results with RRF.
+
+    Args:
+        corpus: Corpus to search
+        query: Search query
+        limit: Maximum results
+        fts_weight: Weight for FTS scores
+        vector_weight: Weight for vector scores
+        semantic_types: Optional filter by semantic type
+
+    Returns:
+        List of SearchResult objects
+    """
+    # Expand query using LLM (cached)
+    expanded = expand_query(
+        query,
+        get_cache_fn=corpus.get_cache,
+        set_cache_fn=corpus.set_cache,
+    )
+
+    # Build query lists - original query always included with 2x weight
+    queries_fts = [query, query] + expanded.lex  # Original 2x + expansions
+    queries_vec = [query, query] + expanded.vec + [expanded.hyde]  # Original 2x + expansions + hyde
+
+    # Collect FTS results from all variants
+    fts_scores: dict[str, tuple[float, int]] = {}
+    for q in queries_fts:
+        try:
+            for chunk_id, score, rank in fts_search(corpus, q, limit=limit):
+                if chunk_id not in fts_scores or score > fts_scores[chunk_id][0]:
+                    fts_scores[chunk_id] = (score, rank)
+        except Exception:
+            # FTS can fail on certain query patterns, skip this variant
+            continue
+
+    # Collect vector results from all variants
+    vector_scores: dict[str, tuple[float, int]] = {}
+    for q in queries_vec:
+        if not q:
+            continue
+        for chunk_id, score, rank in vector_search(corpus, q, limit=limit):
+            if chunk_id not in vector_scores or score > vector_scores[chunk_id][0]:
+                vector_scores[chunk_id] = (score, rank)
+
+    # Combine all chunk IDs
+    all_chunk_ids = set(fts_scores.keys()) | set(vector_scores.keys())
+
+    # Calculate RRF scores
+    combined_scores = []
+    for chunk_id in all_chunk_ids:
+        fts_score, fts_rank = fts_scores.get(chunk_id, (0, len(fts_scores) + 100))
+        vec_score, vec_rank = vector_scores.get(chunk_id, (0, len(vector_scores) + 100))
 
         # RRF combination
         rrf_total = (

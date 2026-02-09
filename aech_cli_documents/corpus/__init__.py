@@ -11,7 +11,8 @@ This module provides:
 
 from .database import Corpus, create_corpus
 from .models import Document, Section, Chunk, SearchResult
-from .search import hybrid_search, vector_search, fts_search
+from .search import hybrid_search, expanded_hybrid_search, vector_search, fts_search
+from .expansion import expand_query, QueryExpansion
 from .structure import extract_structure, DocumentTree
 from .chunker import chunk_document
 from .embeddings import encode_text, encode_batch
@@ -29,8 +30,12 @@ __all__ = [
     "SearchResult",
     # Search
     "hybrid_search",
+    "expanded_hybrid_search",
     "vector_search",
     "fts_search",
+    # Query Expansion
+    "expand_query",
+    "QueryExpansion",
     # Structure
     "extract_structure",
     "DocumentTree",

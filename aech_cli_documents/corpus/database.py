@@ -111,6 +111,15 @@ CREATE TABLE IF NOT EXISTS corpus_meta (
     value TEXT
 );
 
+-- Search cache (query expansions, etc.)
+CREATE TABLE IF NOT EXISTS search_cache (
+    cache_key TEXT NOT NULL,
+    cache_type TEXT NOT NULL,
+    value TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (cache_type, cache_key)
+);
+
 -- Triggers for FTS sync
 CREATE TRIGGER IF NOT EXISTS chunks_fts_insert AFTER INSERT ON chunks BEGIN
     INSERT INTO chunks_fts(id, content, enriched_content, section_title)
@@ -406,6 +415,39 @@ class Corpus:
                 (key, value)
             )
             conn.commit()
+
+    # Cache operations
+
+    def get_cache(self, cache_type: str, cache_key: str) -> Optional[str]:
+        """Get a cached value."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT value FROM search_cache WHERE cache_type = ? AND cache_key = ?",
+                (cache_type, cache_key)
+            ).fetchone()
+            return row['value'] if row else None
+
+    def set_cache(self, cache_type: str, cache_key: str, value: str) -> None:
+        """Set a cached value."""
+        with self.connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO search_cache (cache_type, cache_key, value) VALUES (?, ?, ?)",
+                (cache_type, cache_key, value)
+            )
+            conn.commit()
+
+    def clear_cache(self, cache_type: Optional[str] = None) -> int:
+        """Clear cached values. If cache_type is None, clears all caches."""
+        with self.connection() as conn:
+            if cache_type:
+                cursor = conn.execute(
+                    "DELETE FROM search_cache WHERE cache_type = ?",
+                    (cache_type,)
+                )
+            else:
+                cursor = conn.execute("DELETE FROM search_cache")
+            conn.commit()
+            return cursor.rowcount
 
     def get_info(self) -> CorpusInfo:
         """Get corpus statistics."""

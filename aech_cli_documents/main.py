@@ -528,12 +528,16 @@ def search(
     semantic_type: Optional[str] = typer.Option(None, "--semantic-type", "-s", help="Filter by semantic type"),
     format: str = typer.Option("table", "--format", "-f", help="Output format: table, json"),
     include_content: bool = typer.Option(False, "--include-content", help="Include full content in JSON output"),
+    expand: bool = typer.Option(False, "--expand", "-x", help="Use query expansion for improved recall"),
 ):
     """
     Search across a corpus using hybrid search (FTS + vector + RRF).
+
+    Use --expand to enable LLM-powered query expansion for better recall.
+    Model configured via EXPANSION_MODEL or AECH_LLM_MODEL env vars.
     """
     from .corpus.database import Corpus
-    from .corpus.search import hybrid_search, expand_context
+    from .corpus.search import hybrid_search, expanded_hybrid_search, expand_context
 
     corpus_file = Path(corpus_path)
     if not corpus_file.exists():
@@ -543,7 +547,12 @@ def search(
     corpus = Corpus(corpus_file)
 
     semantic_types = [semantic_type] if semantic_type else None
-    results = hybrid_search(corpus, query, limit=limit, semantic_types=semantic_types)
+
+    if expand:
+        results = expanded_hybrid_search(corpus, query, limit=limit, semantic_types=semantic_types)
+    else:
+        results = hybrid_search(corpus, query, limit=limit, semantic_types=semantic_types)
+
     results = expand_context(corpus, results)
 
     if format == "json":
