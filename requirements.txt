@@ -3,7 +3,7 @@ Pillow
 typer
 pypandoc-binary
 anthropic
-sentence-transformers
+openai
 numpy
 rich
 pydantic>=2.0

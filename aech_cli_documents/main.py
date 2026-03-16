@@ -3,7 +3,7 @@ Agent Aech Documents CLI - Universal Document Corpus
 
 Commands:
 - convert: Document → images (PDF/Office/Image → PNG pages)
-- convert-to-markdown: Document → Markdown (VLM-based, no text extraction)
+- convert-to-markdown: Document → Markdown (smart PDF routing + VLM fallback)
 - convert-markdown: Markdown → Office/PDF (Pandoc)
 - corpus: Corpus management (create, info, list)
 - ingest: Add documents to corpus with optional enrichment
@@ -151,9 +151,9 @@ def convert_to_markdown(
     output_dir: str = typer.Option(..., "--output-dir", "-o", help="Directory to save output markdown"),
 ):
     """
-    Converts a document to Markdown using VLM.
+    Converts a document to Markdown.
 
-    Full visual understanding - no text extraction hacks.
+    PDFs use smart routing via pdf-inspector when enabled; otherwise VLM conversion.
     Model configured via VLM_MODEL or AECH_LLM_MODEL environment variables.
     """
     from .corpus.vlm import convert_to_markdown_vlm

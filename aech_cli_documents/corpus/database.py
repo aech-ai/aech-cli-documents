@@ -191,6 +191,23 @@ class Corpus:
             self._conn.close()
             self._conn = None
 
+    def ensure_configured_embedding_model(self) -> str:
+        """Ensure the current runtime matches the corpus embedding model."""
+        from .embeddings import get_configured_embedding_model
+
+        configured_model = get_configured_embedding_model()
+        stored_model = self.get_meta("embedding_model")
+        if stored_model is None:
+            self.set_meta("embedding_model", configured_model)
+            return configured_model
+        if stored_model != configured_model:
+            raise RuntimeError(
+                "Corpus embedding model mismatch: "
+                f"corpus uses {stored_model!r}, runtime is configured for {configured_model!r}. "
+                "Point EMBEDDING_MODEL at the matching server model or rebuild the corpus."
+            )
+        return stored_model
+
     # Document operations
 
     def add_document(self, doc: Document) -> str:
@@ -335,6 +352,8 @@ class Corpus:
 
     def add_chunk(self, chunk: Chunk) -> str:
         """Add a chunk to the corpus."""
+        if chunk.embedding is not None:
+            self.ensure_configured_embedding_model()
         embedding_blob = embedding_to_bytes(chunk.embedding) if chunk.embedding else None
         with self.connection() as conn:
             conn.execute("""
@@ -354,6 +373,8 @@ class Corpus:
 
     def add_chunks_batch(self, chunks: list[Chunk]) -> None:
         """Add multiple chunks in a single transaction."""
+        if any(chunk.embedding is not None for chunk in chunks):
+            self.ensure_configured_embedding_model()
         with self.connection() as conn:
             for chunk in chunks:
                 embedding_blob = embedding_to_bytes(chunk.embedding) if chunk.embedding else None
@@ -390,6 +411,7 @@ class Corpus:
 
     def update_chunk_embedding(self, chunk_id: str, embedding: list[float]) -> None:
         """Update a chunk's embedding."""
+        self.ensure_configured_embedding_model()
         with self.connection() as conn:
             conn.execute(
                 "UPDATE chunks SET embedding = ? WHERE id = ?",
@@ -471,7 +493,7 @@ class Corpus:
             updated_at=datetime.fromisoformat(
                 self.get_meta('updated_at', datetime.utcnow().isoformat())
             ),
-            embedding_model=self.get_meta('embedding_model', 'BAAI/bge-m3')
+            embedding_model=self.get_meta('embedding_model', 'unknown')
         )
 
     # Row converters
@@ -538,6 +560,8 @@ class Corpus:
 
 def create_corpus(db_path: str | Path, name: Optional[str] = None) -> Corpus:
     """Create a new corpus database."""
+    from .embeddings import get_configured_embedding_model
+
     db_path = Path(db_path)
 
     # Create parent directories if needed
@@ -553,6 +577,6 @@ def create_corpus(db_path: str | Path, name: Optional[str] = None) -> Corpus:
     corpus.set_meta('name', name or db_path.stem)
     corpus.set_meta('created_at', datetime.utcnow().isoformat())
     corpus.set_meta('updated_at', datetime.utcnow().isoformat())
-    corpus.set_meta('embedding_model', 'BAAI/bge-m3')
+    corpus.set_meta('embedding_model', get_configured_embedding_model())
 
     return corpus

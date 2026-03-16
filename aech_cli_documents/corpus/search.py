@@ -3,8 +3,8 @@
 import sqlite3
 from typing import Optional
 
-from .database import Corpus, bytes_to_embedding
-from .embeddings import encode_text, cosine_similarity, batch_cosine_similarity
+from .database import Corpus
+from .embeddings import encode_text, batch_cosine_similarity
 from .expansion import expand_query, QueryExpansion
 from .models import SearchResult
 
@@ -59,6 +59,8 @@ def vector_search(
     Returns:
         List of (chunk_id, cosine_similarity, rank)
     """
+    corpus.ensure_configured_embedding_model()
+
     # Encode query
     query_embedding = encode_text(query)
 

@@ -2,7 +2,7 @@
 Universal Document Corpus - Agent Aech's document intelligence capability.
 
 This module provides:
-- Document ingestion with VLM-based conversion
+- Document ingestion with smart PDF routing + VLM conversion
 - Structure extraction from markdown
 - LLM-powered enrichment (summaries, HyDE questions, classification)
 - Hybrid search (FTS + vector + RRF)

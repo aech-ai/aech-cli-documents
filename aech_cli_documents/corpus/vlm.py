@@ -1,14 +1,13 @@
-"""VLM-based document to markdown conversion.
+"""Document-to-Markdown conversion.
 
-This module provides pure VLM conversion:
-Document → Images → VLM → Markdown
+This module provides:
+- Smart PDF routing (pdf-inspector local extraction for text-based PDFs)
+- VLM conversion path for scanned/mixed PDFs and non-PDF documents
 
-No text extraction hacks - full visual understanding.
-
-Uses pydantic-ai with model configuration from environment variables.
+Uses pydantic-ai for the VLM path with model configuration from
+environment variables.
 """
 
-import base64
 import os
 from pathlib import Path
 from typing import Optional
@@ -19,6 +18,14 @@ from pdf2image import convert_from_path
 from PIL import Image
 
 from .model_utils import parse_model_string, get_model_settings
+from .pdf_inspector import (
+    LOCAL_EXTRACTION_ROUTE,
+    decide_pdf_route,
+    detect_pdf_with_inspector,
+    extract_markdown_with_inspector,
+    get_min_confidence,
+    is_smart_pdf_routing_enabled,
+)
 
 
 # Prompt for markdown extraction
@@ -127,18 +134,11 @@ def get_media_type(image_path: Path) -> str:
 async def convert_page_to_markdown_async(image_bytes: bytes, media_type: str = "image/png") -> str:
     """Convert a single page image to markdown using VLM (async)."""
     agent = _get_vlm_agent()
-
     result = await agent.run(
-        "Convert this document page to Markdown.",
-        message_history=[
-            {
-                "role": "user",
-                "content": [
-                    BinaryContent(data=image_bytes, media_type=media_type),
-                    "Convert this document page to well-structured Markdown.",
-                ],
-            }
-        ],
+        [
+            "Convert this document page to well-structured Markdown.",
+            BinaryContent(data=image_bytes, media_type=media_type),
+        ]
     )
     return result.output
 
@@ -180,6 +180,29 @@ async def convert_to_markdown_vlm_async(
 
     # Handle different input types
     if suffix == ".pdf":
+        if is_smart_pdf_routing_enabled():
+            if progress_callback:
+                progress_callback(0, 1, "Classifying PDF with pdf-inspector...")
+
+            detection = detect_pdf_with_inspector(input_path)
+            decision = decide_pdf_route(detection, get_min_confidence())
+
+            if progress_callback:
+                progress_callback(0, 1, f"Routing decision: {decision.route} ({decision.reason})")
+
+            if decision.route == LOCAL_EXTRACTION_ROUTE:
+                if progress_callback:
+                    progress_callback(0, 1, "Extracting markdown locally with pdf-inspector...")
+
+                markdown = extract_markdown_with_inspector(input_path)
+
+                if progress_callback:
+                    progress_callback(1, 1, "Done")
+                return markdown
+
+            if progress_callback:
+                progress_callback(0, 1, "Routing to VLM pipeline...")
+
         # Convert PDF to images
         if progress_callback:
             progress_callback(0, 1, "Converting PDF to images...")

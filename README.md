@@ -6,6 +6,10 @@ intelligence with excellent retrieval through hybrid search (FTS + vector + RRF 
 **Key Principle**: Invest LLM tokens at index time (once per document) to crystallize
 value for retrieval (free, fast, every query).
 
+**PDF Smart Routing**: PDFs are classified with `detect-pdf`; high-confidence
+text-based PDFs are extracted with `pdf2md`, and everything else is routed to
+the VLM pipeline.
+
 ## Installation
 
 ```bash
@@ -15,6 +19,9 @@ pip install -e .
 **Dependencies**:
 - `pdf2image` requires poppler: `brew install poppler` (macOS) or `apt install poppler-utils` (Linux)
 - `pandoc` for markdown conversion: https://pandoc.org/installing.html
+- For PDF routing in workers:
+  - `detect-pdf` and `pdf2md` must be installed in the worker image via the
+    aech-main `uv` manager
 
 ## Configuration
 
@@ -29,7 +36,28 @@ ENRICHMENT_MODEL=openai:gpt-4o-mini
 
 # Default model (used if specific model not set)
 AECH_LLM_MODEL=openai:gpt-4o
+
+# OpenAI-compatible embedding endpoint for corpus ingest/search
+EMBEDDING_BASE_URL=http://host.docker.internal:1234/v1
+EMBEDDING_MODEL=text-embedding-bge-m3@fp16
+EMBEDDING_API_KEY=lm-studio
+EMBEDDING_BATCH_SIZE=8
+
+# PDF routing mode: smart (default) or vlm_only
+AECH_PDF_ROUTING_MODE=smart
+
+# Min confidence for local text extraction when pdf_type=text_based
+AECH_PDF_INSPECTOR_MIN_CONFIDENCE=0.90
+
+# Optional binary overrides
+AECH_PDF_INSPECTOR_DETECT_BIN=detect-pdf
+AECH_PDF_INSPECTOR_PDF2MD_BIN=pdf2md
 ```
+
+If `AECH_PDF_ROUTING_MODE=smart`, missing/invalid pdf-inspector binaries fail loudly.
+Set `AECH_PDF_ROUTING_MODE=vlm_only` to force the legacy VLM path.
+Corpus ingest/search also requires an OpenAI-compatible embedding server. The package no
+longer runs local `sentence-transformers` models in-process.
 
 Model format: `provider:model` (e.g., `openai:gpt-4o`, `anthropic:claude-sonnet-4`)
 
@@ -48,7 +76,7 @@ aech-cli-documents convert document.pdf --output-dir ./images
 - **Output**: Numbered PNG files (`page_001.png`, `page_002.png`, ...)
 
 #### `convert-to-markdown`
-Convert any document to markdown using VLM.
+Convert any document to markdown using smart PDF routing + VLM.
 
 ```bash
 aech-cli-documents convert-to-markdown document.pdf --output-dir ./output
@@ -58,9 +86,9 @@ aech-cli-documents convert-to-markdown document.pdf --output-dir ./output
 - **Output**: Markdown file with full visual understanding
 - **Flags**: `--model` to override the `VLM_MODEL` env var
 
-**Note**: Uses VLM ONLY - no text extraction libraries. The document is rendered
-as images and processed by the model specified in `VLM_MODEL` for full visual
-understanding of layout, tables, diagrams, and handwriting.
+**Note**: For PDFs, the CLI can route between local extraction (`pdf2md`) and the
+VLM image pipeline based on `detect-pdf` classification. Non-PDF formats continue
+through the existing VLM conversion flow.
 
 #### `convert-markdown`
 Convert markdown to polished deliverables (DOCX, PDF, PPTX).
@@ -189,7 +217,10 @@ aech-cli-documents export doc-123 --corpus ./kb.db --format markdown
 ## Architecture
 
 ```
-Document → VLM (images) → Markdown → Structure Extraction → Enrichment → Hybrid Search
+Document → Smart PDF Router → Markdown → Structure Extraction → Enrichment → Hybrid Search
+             │
+             ├─ text_based + high confidence → pdf2md (local)
+             └─ otherwise → VLM (images)
                                            ↓
                               ┌─────────────────────────┐
                               │  Hierarchical Tree      │
@@ -202,17 +233,17 @@ Document → VLM (images) → Markdown → Structure Extraction → Enrichment �
                               └─────────────────────────┘
                                            ↓
                               ┌─────────────────────────┐
+                              │  OpenAI-compatible      │
                               │  bge-m3 Embeddings +    │
                               │  FTS5 Full-Text Index   │
                               └─────────────────────────┘
 ```
 
-### Why VLM Only?
+### Why Smart PDF Routing?
 
-- **Format agnostic**: Any document becomes images
-- **Full understanding**: VLM sees layout, tables, diagrams
-- **Handles scans**: OCR built-in, even handwriting
-- **No parsing bugs**: No text extraction library quirks
+- **Lower latency/cost**: Text-based PDFs avoid expensive VLM/OCR passes
+- **Still robust on hard PDFs**: Scanned/image-heavy PDFs route to VLM
+- **Keeps full visual path**: Complex documents still use the existing image-based conversion
 
 ### Why Enrich at Index Time?
 
